@@ -2,34 +2,58 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"github.com/stianeikeland/go-rpio/v4"
+	"github.com/warthog618/gpio"
 )
 
+type gasmeter struct {
+	data100 int
+}
+
+func (g *gasmeter) CountPulse() {
+	g.data100++
+}
+
+func (g *gasmeter) Reading() float64 {
+	return float64(g.data100) / float64(100)
+}
+
 func main() {
-	fmt.Println("hallo")
-
-	err := rpio.Open()
+	err := gpio.Open()
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
+	defer gpio.Close()
+	pin := gpio.NewPin(gpio.J8p13)
+	pin.Input()
+	pin.PullDown()
 
-	led := rpio.Pin(17)
-	led.Output()
+	gmeter := &gasmeter{}
 
-	gPin := rpio.Pin(27)
-	gPin.Input()
-	gPin.PullDown()
+	// capture exit signals to ensure resources are released on exit.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	for {
-		led.Toggle()
-		time.Sleep(100 * time.Millisecond)
+	defer signal.Stop(quit)
 
-		res := gPin.Read()
-		fmt.Printf("gas: %v\n", res)
+	err = pin.Watch(gpio.EdgeFalling, func(pin *gpio.Pin) {
+		gmeter.CountPulse()
+		fmt.Printf("Current Gasmeter value is %v", gmeter.Reading())
+	})
+	if err != nil {
+		panic(err)
 	}
+	defer pin.Unwatch()
 
-	rpio.Close()
+	// In a real application the main thread would do something useful here.
+	// But we'll just run for a minute then exit.
+	fmt.Println("Watching Pin 4...")
+	select {
+	case <-time.After(time.Minute):
+	case <-quit:
+	}
 }
