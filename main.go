@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,7 +24,19 @@ func (g *gasmeter) Reading() float64 {
 }
 
 func main() {
-	err := gpio.Open()
+	err := connectDB()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ts, value, err := lastValueFromDB()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("found last value in db: %v %v\n", ts, value)
+
+	err = gpio.Open()
 	if err != nil {
 		panic(err)
 	}
