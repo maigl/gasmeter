@@ -91,12 +91,12 @@ func lastValueFromDB() (time.Time, float64, error) {
 		return time.Time{}, 0, nil
 	}
 
-	rows.Next()
 	var ts time.Time
 	var value float64
 
 	err = rows.Scan(&value, &ts)
 	if err != nil {
+		fmt.Println("last value from db")
 		return time.Time{}, 0, err
 	}
 	return ts, value, nil

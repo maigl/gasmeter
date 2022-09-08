@@ -40,10 +40,12 @@ func NewGasmeter(fake bool) *Gasmeter {
 		pin.Input()
 		pin.PullDown()
 
-		err = pin.Watch(gpio.EdgeFalling, func(pin *gpio.Pin) {
+		err = pin.Watch(gpio.EdgeBoth, func(pin *gpio.Pin) {
 			g.CountPulse()
 			fmt.Printf("Current Gasmeter value is %v", g.Reading())
 		})
+		fmt.Println("waiting for pulse")
+
 		if err != nil {
 			panic(err)
 		}

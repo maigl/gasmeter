@@ -24,7 +24,7 @@ func main() {
 	}
 	fmt.Printf("found last value in db: %v %v\n", ts, lastValueInDB)
 
-	fake := true
+	fake := false
 	g := NewGasmeter(fake)
 
 	// initialize with last value from db
