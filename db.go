@@ -20,44 +20,60 @@ var (
 	db       *sql.DB
 )
 
-func connectDB() error {
+func connectDB() (*sql.DB, error) {
 	psqlconn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
 
 	var err error
 
 	db, err = sql.Open("postgres", psqlconn)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	createSchemaStmt := `create schema if not exists ` + schema
 
 	_, err = db.Exec(createSchemaStmt)
 	if err != nil {
-		return err
+		db.Close()
+		return nil, err
 	}
 
 	_, err = db.Exec(`set timezone = 'Europe/Berlin'`)
 	if err != nil {
-		return err
+		db.Close()
+		return nil, err
 	}
 
-	createTable := `create table if not exists ` + table + ` (value_in_m3 real, time timestamptz not null default current_timestamp primary key)`
+	createTable := `create table if not exists ` + table + ` (value_in_m3 real, comment varchar(255), time timestamptz not null default current_timestamp primary key)`
 
 	_, err = db.Exec(createTable)
 	if err != nil {
-		return err
+		db.Close()
+		return nil, err
 	}
 
-	return nil
+	return db, nil
 }
 
-func insertImpluseIntoDB(value float64) error {
-	insertStmt := `insert into ` + table + ` values ($1)`
+func insertImpulseIntoDB(value float64) error {
+	return insertValueIntoDB(value, "impulse")
+}
 
-	_, err := db.Exec(insertStmt, value)
+func updateValueInDB(value float64) error {
+	return insertValueIntoDB(value, "manual update")
+}
+
+func insertValueIntoDB(value float64, comment string) error {
+	// check length of comment
+	if len(comment) > 255 {
+		comment = comment[:255]
+	}
+
+	insertStmt := `insert into ` + table + ` values ($1, $2)`
+
+	_, err := db.Exec(insertStmt, value, comment)
 	if err != nil {
-		return err
+		return fmt.Errorf("error inserting value into db: %w", err)
 	}
 
 	return nil
@@ -70,6 +86,11 @@ func lastValueFromDB() (time.Time, float64, error) {
 	}
 
 	defer rows.Close()
+
+	if !rows.Next() {
+		return time.Time{}, 0, nil
+	}
+
 	rows.Next()
 	var ts time.Time
 	var value float64

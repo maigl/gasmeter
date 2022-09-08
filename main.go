@@ -1,72 +1,76 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
-
-	"github.com/warthog618/gpio"
 )
 
-type gasmeter struct {
-	data100 int
-}
-
-func (g *gasmeter) CountPulse() {
-	g.data100++
-}
-
-func (g *gasmeter) Reading() float64 {
-	return float64(g.data100) / float64(100)
-}
-
 func main() {
-	err := connectDB()
+	db, err := connectDB()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	ts, value, err := lastValueFromDB()
+	defer db.Close()
+
+	ts, lastValueInDB, err := lastValueFromDB()
 	if err != nil {
 		log.Fatal(err)
 	}
+	fmt.Printf("found last value in db: %v %v\n", ts, lastValueInDB)
 
-	fmt.Printf("found last value in db: %v %v\n", ts, value)
+	fake := true
+	g := NewGasmeter(fake)
 
-	err = gpio.Open()
-	if err != nil {
-		panic(err)
-	}
-	defer gpio.Close()
-	pin := gpio.NewPin(gpio.J8p13)
-	pin.Input()
-	pin.PullDown()
+	// initialize with last value from db
+	g.UpdateValue(lastValueInDB)
 
-	gmeter := &gasmeter{}
+	// add a handler to print the current value
+	http.HandleFunc("/gasmeter", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "Current Gasmeter value is %v", g.Reading())
+	})
+
+	// add a handler to update the current value
+	http.HandleFunc("/gasmeter/update", func(w http.ResponseWriter, r *http.Request) {
+		// read json from request body
+		decoder := json.NewDecoder(r.Body)
+		var t struct {
+			Value float64 `json:"value"`
+		}
+		err := decoder.Decode(&t)
+		if err != nil {
+			fmt.Fprintf(w, "error: %v", err)
+			return
+		}
+		r.Body.Close()
+		// update the value in the database
+		err = updateValueInDB(t.Value)
+		if err != nil {
+			fmt.Fprintf(w, "error: %v", err)
+			return
+		}
+		// update the value in the meter
+		g.UpdateValue(t.Value)
+		fmt.Printf("updated value to %v\n", t.Value)
+	})
+
+	go func() {
+		// listen and serve
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	// capture exit signals to ensure resources are released on exit.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	defer signal.Stop(quit)
-
-	err = pin.Watch(gpio.EdgeFalling, func(pin *gpio.Pin) {
-		gmeter.CountPulse()
-		fmt.Printf("Current Gasmeter value is %v", gmeter.Reading())
-	})
-	if err != nil {
-		panic(err)
-	}
-	defer pin.Unwatch()
-
-	// In a real application the main thread would do something useful here.
-	// But we'll just run for a minute then exit.
-	fmt.Println("Watching Pin 4...")
-	select {
-	case <-time.After(time.Minute):
-	case <-quit:
-	}
+	// wait for exit signal
+	<-quit
 }
