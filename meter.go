@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/warthog618/gpio"
@@ -16,10 +17,22 @@ type PulseMeter interface {
 
 type Gasmeter struct {
 	data100 int
+	pin     *gpio.Pin
 }
 
 func NewGasmeter(fake bool) *Gasmeter {
 	g := &Gasmeter{}
+
+	ts, lastValueInDB, err := lastValueFromDB()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("found last value in db: %v %v\n", ts, lastValueInDB)
+	g.UpdateValue(lastValueInDB)
+
+	// somehow on startup the directly get a falling edge event
+	// so we need to ignore the first one
+	ignoreFirst := true
 
 	if fake {
 		go func() {
@@ -35,13 +48,15 @@ func NewGasmeter(fake bool) *Gasmeter {
 		if err != nil {
 			panic(err)
 		}
-		defer gpio.Close()
-		pin := gpio.NewPin(gpio.J8p13)
-		pin.Input()
-		pin.PullDown()
+		g.pin = gpio.NewPin(gpio.J8p13)
+		g.pin.Input()
+		g.pin.PullDown()
 
-		err = pin.Watch(gpio.EdgeBoth, func(pin *gpio.Pin) {
-			g.CountPulse()
+		err = g.pin.Watch(gpio.EdgeFalling, func(pin *gpio.Pin) {
+			if !ignoreFirst {
+				g.CountPulse()
+			}
+			ignoreFirst = false
 			fmt.Printf("Current Gasmeter value is %v", g.Reading())
 		})
 		fmt.Println("waiting for pulse")

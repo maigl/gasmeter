@@ -5,3 +5,4 @@ build-pi:
 
 deploy-pi: build-pi
 	scp gasmeter logpi:~
+	scp gasmeter.service logpi:~/.config/systemd/user/

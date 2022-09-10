@@ -1,0 +1,10 @@
+[Unit]
+Description=simple gasmeter logger
+
+[Service]
+Type=simple
+StandardOutput=journal
+ExecStart=/home/pi/gasmeter
+
+[Install]
+WantedBy=default.target

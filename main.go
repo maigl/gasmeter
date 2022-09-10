@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/warthog618/gpio"
 )
 
 func main() {
@@ -17,18 +19,10 @@ func main() {
 	}
 
 	defer db.Close()
-
-	ts, lastValueInDB, err := lastValueFromDB()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("found last value in db: %v %v\n", ts, lastValueInDB)
+	defer gpio.Close()
 
 	fake := false
 	g := NewGasmeter(fake)
-
-	// initialize with last value from db
-	g.UpdateValue(lastValueInDB)
 
 	// add a handler to print the current value
 	http.HandleFunc("/gasmeter", func(w http.ResponseWriter, r *http.Request) {

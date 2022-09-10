@@ -32,3 +32,10 @@ Most probably, the detection of the pulses will not be perfect and so we will de
 real gasmeter value. Testing is a little tricky, the idea is to make manual tests and see
 how bad it is.
 
+## Deployment
+
+Currently the app is deployed on a raspberry pi 3. The app is started with systemd.
+
+```bash
+systemctl --user status gasmeter
+```
