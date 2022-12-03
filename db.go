@@ -1,103 +1,61 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"time"
 
-	_ "github.com/lib/pq"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 // todo use flag/env params
 var (
-	host     = "192.168.0.42"
-	port     = 49155
-	user     = "maigl"
-	password = "dreggn"
-	dbname   = "ts"
-	schema   = "gasmeter"
-	table    = "impulses"
-	db       *sql.DB
+	host       = "192.168.0.42"
+	port       = 49155
+	user       = "maigl"
+	password   = "dreggn"
+	dbname     = "ts"
+	schemaName = "gasmeter"
+	table      = "impulses"
 )
 
-func connectDB() (*sql.DB, error) {
+var db *gorm.DB
+
+func connectDB() (func(), error) {
 	psqlconn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
 
 	var err error
 
-	db, err = sql.Open("postgres", psqlconn)
+	db, err = gorm.Open(postgres.Open(psqlconn), &gorm.Config{
+		NamingStrategy: schema.NamingStrategy{
+			TablePrefix: schemaName + ".",
+		},
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error connecting to db: %w", err)
 	}
 
-	createSchemaStmt := `create schema if not exists ` + schema
-
-	_, err = db.Exec(createSchemaStmt)
-	if err != nil {
+	return func() {
+		db, err := db.DB()
+		if err != nil {
+			fmt.Println("error closing db connection: ", err)
+		}
 		db.Close()
-		return nil, err
-	}
-
-	_, err = db.Exec(`set timezone = 'Europe/Berlin'`)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	createTable := `create table if not exists ` + table + ` (value_in_m3 real, comment varchar(255), time timestamptz not null default current_timestamp primary key)`
-
-	_, err = db.Exec(createTable)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	return db, nil
+	}, nil
 }
 
-func insertImpulseIntoDB(value float64) error {
-	return insertValueIntoDB(value, "impulse")
+func insertImpulseIntoDB(impulse *Impulse) error {
+	db.AutoMigrate(&Impulse{})
+	return db.Create(impulse).Error
 }
 
-func updateValueInDB(value float64) error {
-	return insertValueIntoDB(value, "manual update")
-}
-
-func insertValueIntoDB(value float64, comment string) error {
-	// check length of comment
-	if len(comment) > 255 {
-		comment = comment[:255]
+func lastValueFromDB() (Impulse, error) {
+	i := Impulse{}
+	tx := db.Last(&i)
+	if tx.Error != nil {
+		insertImpulseIntoDB(&Impulse{Timestamp: time.Now(), ValueInM3: 0, Comment: "initial value"})
+		return lastValueFromDB()
 	}
-
-	insertStmt := `insert into ` + table + ` values ($1, $2)`
-
-	_, err := db.Exec(insertStmt, value, comment)
-	if err != nil {
-		return fmt.Errorf("error inserting value into db: %w", err)
-	}
-
-	return nil
-}
-
-func lastValueFromDB() (time.Time, float64, error) {
-	rows, err := db.Query(`select value_in_m3, time from ` + table + ` order by time desc limit 1`)
-	if err != nil {
-		return time.Time{}, 0, err
-	}
-
-	defer rows.Close()
-
-	if !rows.Next() {
-		return time.Time{}, 0, nil
-	}
-
-	rows.Next()
-	var ts time.Time
-	var value float64
-
-	err = rows.Scan(&value, &ts)
-	if err != nil {
-		return time.Time{}, 0, err
-	}
-	return ts, value, nil
+	return i, tx.Error
 }

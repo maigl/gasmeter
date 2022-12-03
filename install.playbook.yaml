@@ -1,0 +1,34 @@
+- hosts: logpi
+  vars:
+    dreggn: blah
+  tasks:
+    - name: build
+      local_action: shell GOOS=linux GOARCH=arm GOARM=5 go build .
+
+    - name: copy binary to target
+      copy:
+        src: gasmeter
+        dest: gasmeter
+        force: true
+
+    - name: create service file
+      copy:
+        dest: ~/.config/systemd/user/gasmeter.service
+        content: |
+          [Unit]
+          Description=Gas Meter
+
+          [Service]
+          Type=simple
+          ExecStart=/home/pi/gasmeter
+          Restart=always
+
+          [Install]
+          WantedBy=default.target
+
+    - name: start gasmeter service
+      systemd:
+        name: gasmeter
+        scope: user
+        state: restarted
+

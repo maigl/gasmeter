@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/warthog618/gpio"
+	rpio "github.com/stianeikeland/go-rpio/v4"
 )
 
 type PulseMeter interface {
@@ -16,6 +16,7 @@ type PulseMeter interface {
 
 type Gasmeter struct {
 	data100 int
+	pin     rpio.Pin
 }
 
 func NewGasmeter(fake bool) *Gasmeter {
@@ -31,38 +32,50 @@ func NewGasmeter(fake bool) *Gasmeter {
 			}
 		}()
 	} else {
-		err := gpio.Open()
+		err := rpio.Open()
 		if err != nil {
 			panic(err)
 		}
-		defer gpio.Close()
-		pin := gpio.NewPin(gpio.J8p13)
-		pin.Input()
-		pin.PullDown()
+		g.pin = rpio.Pin(27)
+		// of course, we actually want to read the input
+		g.pin.Input()
+		g.pin.PullDown()
 
-		err = pin.Watch(gpio.EdgeFalling, func(pin *gpio.Pin) {
-			g.CountPulse()
-			fmt.Printf("Current Gasmeter value is %v", g.Reading())
-		})
-		if err != nil {
-			panic(err)
-		}
+		var last rpio.State
+		go func() {
+			for {
+				current := g.pin.Read()
+				// detect falling edge
+				if current == rpio.Low && last == rpio.High {
+					g.CountPulse()
+					fmt.Println("pulse .. wait a bit")
+					time.Sleep(5 * time.Second)
+					fmt.Println(".. continue detecting")
+				}
+				last = current
+				time.Sleep(500 * time.Millisecond)
+			}
+		}()
 	}
-
-	// FIXME: do we need to do this ??
-	// defer pin.Unwatch()
 
 	return g
 }
 
 func (g *Gasmeter) Close() {
-	gpio.Close()
+	g.pin.Detect(rpio.NoEdge)
+	rpio.Close()
 }
 
 func (g *Gasmeter) CountPulse() {
 	g.data100++
 
-	err := insertImpulseIntoDB(g.Reading())
+	im := &Impulse{
+		Timestamp: time.Now(),
+		ValueInM3: g.Reading(),
+		Comment:   "impulse",
+	}
+
+	err := insertImpulseIntoDB(im)
 	if err != nil {
 		fmt.Printf("error counting pulse: %v", err)
 	}
